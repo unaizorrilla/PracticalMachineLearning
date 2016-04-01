@@ -1,0 +1,187 @@
+---
+title: "Human Activity Recognition - Weight Lifting Exercise Class Clasification"
+author: "Unai Zorrilla Castro"
+date: "April 1, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE,error =FALSE,cache = FALSE)
+
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(randomForest)
+
+set.seed(123929)
+
+```
+
+#Synopsis
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways
+
+## Data Sets
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+# Objectives
+
+By processing data gathered from accelerometers on the belt, forearm, arm, and dumbell of the participants in a machine learning algorithm, the question **is can the appropriate activity quality (class A-E) be predicted?**
+
+# Cleaning and Data transformation
+
+## Download and cleaning data sets
+
+Our first task is download data and examining the content of the traning and testing data. The next script show the code to download experiment data sets.
+
+```{r LoadData}
+
+trainingUrl<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(trainingUrl,"./datasets/training.csv")
+download.file(testingUrl,"./datasets/testing.csv")
+
+trainingds <-read.csv("./datasets/training.csv",stringsAsFactors = T,na.strings = c("NA",""),header = TRUE)
+
+testingds <-read.csv("./datasets/testing.csv",stringsAsFactors = T,na.strings = c("NA",""),header = TRUE)
+
+summary(trainingds)
+
+```
+
+Reading the summary of our datasets, a lot of columns contains many NA values and also, exist, the first seven, not interested columns in our classification experiment. The next script remove all unnecesary columns and columns with excesive NA's values.
+
+```{r Sanitize}
+
+trainingds<-trainingds[,-(1:7)]
+testingds<-testingds[,-(1:7)]
+
+countOfNAs <- function(x) {
+  as.vector(apply(x, 2, function(x) length(which(!is.na (x))))) } 
+
+columnsToRemove <- countOfNAs(trainingds)<nrow(trainingds) 
+
+drop<-c()
+for(index in 1:length(columnsToRemove)){
+  if(columnsToRemove[index]){
+    drop<-c(drop,index)
+  }
+}
+
+sanitized_trainingds<-trainingds[,-drop]
+sanitized_testingds<-testingds[,-drop]
+sanitized_testingds<-sanitized_testingds[,-53]
+
+summary(sanitized_trainingds)
+
+```
+
+Another test to perform in this initial data is check the variability of values in each feature of our data set. For this, the nearZeroVar function from caret packages is performed.
+
+```{r NearZeroVar}
+
+nzv<-nearZeroVar(sanitized_trainingds,saveMetrics = T)
+nzv
+
+```
+
+After observing variability in each feature, any new covariate need to be removed from data set.
+
+## Prepare Training, Observation, Test data sets
+
+After observing the lower number of observations on test data, `r nrow(sanitized_testingds)`, in this expermiment perform a new partition on training data to have some validation date for our experiments.
+
+```{r CreatePartitions}
+
+trainIndexes<-createDataPartition(sanitized_trainingds$classe,p=3/4,list=F)
+
+trainds<-sanitized_trainingds[trainIndexes,]
+validationds<-sanitized_trainingds[-trainIndexes,]
+testds<-sanitized_testingds
+
+trainds$classe<-as.factor(trainds$classe)
+validationds$classe<-as.factor(validationds$classe)
+
+
+```
+
+# Evaluating Models
+
+## Classifcation Trees
+
+The first model to evaluate is Classifcation Tree Method from *rpart* package and *caret*. After creating the model, a confussion matrix is created in order to evaluate the accuracy of the model on validation data set.
+
+```{r ClassificationTreeMethod}
+
+fit1<-rpart(classe ~ .,data = trainds, method = "class")
+
+rpart.plot(fit1)
+
+predictions <- predict(fit1,validationds,type = "class")
+
+cfm<-confusionMatrix(predictions,validationds$classe)
+
+cfm
+
+```
+
+Two elements can be extracted for this results, accuracy with a value of `r cfm$overall["Accuracy"]` and Kappa with a value of `r cfm$overall["Kappa"]`. This overall accuracy is not bad, but Kappa value is a bit slower that ideal.
+
+**Note: Kappa statistic adjust accuracy by accounting for the posibility of a correct prediction by change alone.**
+
+
+## Random Forest
+
+In order to improve results, other method to test is ensemble-based random forest:
+
+```{r RandomForestMethod}
+
+control<- trainControl(method="repeatedcv",number=4,allowParallel =TRUE,verbose=TRUE)
+fit2 <- train(classe ~ .,
+                      data=trainds,
+                      method="rf",
+                      preProcess=c("center","scale"),
+                      trainControl=control)
+
+predictions<-predict(fit2,validationds)
+cfm<-confusionMatrix(predictions,validationds$classe)
+
+cfm
+
+```
+
+The Accuracy and Kappa statistic are:
+
+    ** Accuracy:`r cfm$overall["Accuracy"]` **
+    ** Kappa:`r cfm$overall["Kappa"]` **
+
+#Conclusion
+
+The **out of sample error* is the error rate you get on new data set. In this case, after running predict on *validationds* the error is :
+
+    1.- Classifcation Tree = 1- 0.7278 = 0.2722
+    2.- Random Forst (pre processing and cross validation) = 1 - 0.9916 = 0.0084
+    
+The predictions for test dataset for both methods are:
+
+```{r Quiz}
+
+predict(fit1,testds,type="class")
+
+
+predict(fit2,testds)
+
+```
+
+
+ 
