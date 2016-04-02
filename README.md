@@ -2,4 +2,4 @@
 
 To view html report use github.io 
 
-[Analysis Classification)(http://unaizorrilla.github.io/PracticalMachineLearning/WeightLiftingExerciseClassClassification.html)
+http://unaizorrilla.github.io/PracticalMachineLearning/WeightLiftingExerciseClassClassification.html
